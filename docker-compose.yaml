@@ -1,0 +1,15 @@
+version: '3.8'
+services:
+  postgres:
+    image: postgres:13.1
+
+    restart: unless-stopped
+
+    environment:
+      - PGDATA=/var/lib/postgresql/data/pgdata
+      - POSTGRES_USER=DM8JXS5LSr24FLKd
+      - POSTGRES_PASSWORD=Se9zhnPod9EKw47Z
+    ports:
+      - 127.0.0.1:54331:5432
+    volumes:
+      - ./src:/var/lib/postgresql/data/pgdata
