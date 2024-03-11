@@ -11,5 +11,19 @@ services:
       - POSTGRES_PASSWORD=Se9zhnPod9EKw47Z
     ports:
       - 127.0.0.1:54331:5432
+    command: -c 'max_connections=2000'
     volumes:
-      - ./src:/var/lib/postgresql/data/pgdata
+      - ./src/postgresql:/var/lib/postgresql/data/pgdata
+
+  redis:
+    image: redis:latest
+    restart: always
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - ./src/redis/data:/root/redis
+      - ./src/redis/redis.conf:/usr/local/etc/redis/redis.conf
+    environment:
+      - REDIS_PASSWORD=9cP4Mbxja8Fc3E
+      - REDIS_PORT=6379
+      - REDIS_DATABASES=16
