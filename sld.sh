@@ -22,8 +22,8 @@ show_help() {
 Usage: sld [options] [arguments]
 Options:
   -h, --help                        Show this help message and exit.
-  -d, --database DATABASE_NAME      Create a new database.
-  -u, --user USERNAME               Create a new user.
+  -d, --database DATABASE_NAME      Specify the database name.
+  -u, --user USERNAME               Specify the user name.
   -p, --password                    Prompt for user password securely.
   -du, --database-user DB_NAME USER Create a new database with a new user.
   -b, --backup [DB_NAME]            Backup the specified database or default.
@@ -38,8 +38,8 @@ Examples:
   sld --user my_user
   sld --database-user my_db my_user
   sld --backup my_database
-  sld --restore backup.sql
-  sld --apply-sql script.sql
+  sld --restore backup.sql --database my_database
+  sld --apply-sql script.sql --database my_database
   sld --list databases
   sld --delete database my_database
 EOF
@@ -53,6 +53,7 @@ parse_options() {
         exit 1
     fi
 
+    ACTION=""
     while [[ $# -gt 0 ]]; do
         case $1 in
             -h|--help)
@@ -60,12 +61,10 @@ parse_options() {
                 exit 0
                 ;;
             -d|--database)
-                ACTION="create_database"
                 DB_NAME="$2"
                 shift 2
                 ;;
             -u|--user)
-                ACTION="create_user"
                 USER_NAME="$2"
                 shift 2
                 ;;
@@ -120,6 +119,17 @@ parse_options() {
                 ;;
         esac
     done
+
+    # Default actions for standalone options
+    if [[ -z "${ACTION:-}" ]]; then
+        if [[ -n "${DB_NAME:-}" && -z "${USER_NAME:-}" ]]; then
+            ACTION="create_database"
+        elif [[ -n "${USER_NAME:-}" && -z "${DB_NAME:-}" ]]; then
+            ACTION="create_user"
+        elif [[ -n "${USER_NAME:-}" && -n "${DB_NAME:-}" ]]; then
+            ACTION="create_database_user"
+        fi
+    fi
 }
 
 # Function to prompt for password securely
@@ -130,11 +140,20 @@ prompt_password() {
 
 # Function to check if user exists
 user_exists() {
-    psql_exec -tAc "SELECT 1 FROM pg_roles WHERE rolname='$1'" | grep -q 1
+    if psql_exec -tAc "SELECT 1 FROM pg_roles WHERE rolname='$1'" | grep -q 1; then
+        return 0
+    else
+        return 1
+    fi
 }
+
 # Function to check if database exists
 database_exists() {
-    psql_exec -tAc "SELECT 1 FROM pg_database WHERE datname='$1'" | grep -q 1
+    if psql_exec -tAc "SELECT 1 FROM pg_database WHERE datname='$1'" | grep -q 1; then
+        return 0
+    else
+        return 1
+    fi
 }
 
 # Function to execute psql commands
@@ -172,13 +191,13 @@ create_database() {
         return
     fi
 
-    if user_exists "$USER_NAME"; then
-        log_warning "User '$USER_NAME' does not exist or is not set. Using superuser '$DB_SUPERUSER' as the owner."
+    if ! user_exists "$USER_NAME"; then
+        log_info "User '$USER_NAME' does not exist or is not set. Using superuser '$DB_SUPERUSER' as the owner."
         USER_NAME="$DB_SUPERUSER"
     fi
 
     log_info "Creating database '$DB_NAME'..."
-    psql_exec -c "CREATE DATABASE $DB_NAME OWNER \"$USER_NAME\";"
+    psql_exec -c "CREATE DATABASE \"$DB_NAME\" OWNER \"$USER_NAME\";"
     log_success "Database '$DB_NAME' created successfully."
 }
 
@@ -208,28 +227,52 @@ restore_database() {
         exit 1
     fi
 
-    log_info "Restoring database from '$BACKUP_FILE'..."
-
-    # Ensure the 'postgres' role exists
-    if ! user_exists "postgres"; then
-        log_info "Ensuring 'postgres' role exists..."
-        psql_exec -c "CREATE ROLE postgres WITH SUPERUSER LOGIN;"
+    if [[ -z "${DB_NAME:-}" ]]; then
+        log_error "No database specified. Please provide a database name using --database."
+        exit 1
     fi
 
-    # Proceed with restoring the database
-    cat "$BACKUP_FILE" | docker exec -i -e PGPASSWORD="$POSTGRES_PASSWORD" "$CONTAINER_NAME" psql -U "$DB_SUPERUSER"
-    log_success "Database restored successfully from '$BACKUP_FILE'."
+    if ! database_exists "$DB_NAME"; then
+        log_info "Database '$DB_NAME' does not exist. Creating it..."
+        create_database
+    fi
+
+    log_info "Restoring database '$DB_NAME' from '$BACKUP_FILE'..."
+
+    # Restore the backup into the specified database
+    cat "$BACKUP_FILE" | docker exec -i -e PGPASSWORD="$POSTGRES_PASSWORD" "$CONTAINER_NAME" psql -U "$DB_SUPERUSER" -d "$DB_NAME"
+
+    log_success "Database '$DB_NAME' restored successfully from '$BACKUP_FILE'."
 }
 
-# Function to apply SQL file
+# Function to apply SQL file to a specific database
 apply_sql_file() {
     if [[ ! -f "$SQL_FILE" ]]; then
         log_error "SQL file '$SQL_FILE' does not exist."
         exit 1
     fi
-    log_info "Applying SQL file '$SQL_FILE'..."
-    cat "$SQL_FILE" | docker exec -i -e PGPASSWORD="$POSTGRES_PASSWORD" "$CONTAINER_NAME" psql -U "$DB_SUPERUSER"
-    log_success "SQL file '$SQL_FILE' applied successfully."
+
+    if [[ -z "${DB_NAME:-}" ]]; then
+        log_error "No database specified. Please provide a database name using --database."
+        exit 1
+    fi
+
+    if ! database_exists "$DB_NAME"; then
+        log_info "Database '$DB_NAME' does not exist. Creating it..."
+        create_database
+    fi
+
+    log_info "Applying SQL file '$SQL_FILE' to database '$DB_NAME'..."
+
+    output=$(cat "$SQL_FILE" | docker exec -i -e PGPASSWORD="$POSTGRES_PASSWORD" "$CONTAINER_NAME" psql -U "$DB_SUPERUSER" -d "$DB_NAME" 2>&1)
+
+    if [[ $? -ne 0 ]]; then
+        log_error "Failed to apply SQL file '$SQL_FILE' to database '$DB_NAME'."
+        echo "$output"
+        exit 1
+    fi
+
+    log_success "SQL file '$SQL_FILE' applied successfully to database '$DB_NAME'."
 }
 
 # Function to list databases or users
@@ -259,7 +302,7 @@ delete_item() {
                 exit 1
             fi
             log_info "Deleting database '$DELETE_NAME'..."
-            psql_exec -c "DROP DATABASE $DELETE_NAME;"
+            psql_exec -c "DROP DATABASE \"$DELETE_NAME\";"
             log_success "Database '$DELETE_NAME' deleted successfully."
             ;;
         user)
@@ -268,7 +311,7 @@ delete_item() {
                 exit 1
             fi
             log_info "Deleting user '$DELETE_NAME'..."
-            psql_exec -c "DROP USER $DELETE_NAME;"
+            psql_exec -c "DROP USER \"$DELETE_NAME\";"
             log_success "User '$DELETE_NAME' deleted successfully."
             ;;
         *)
@@ -319,10 +362,12 @@ interactive_mode() {
                 ;;
             5)
                 read -rp "Enter backup file to restore: " BACKUP_FILE
+                read -rp "Enter database name to restore into: " DB_NAME
                 restore_database
                 ;;
             6)
                 read -rp "Enter SQL file to apply: " SQL_FILE
+                read -rp "Enter database name to apply SQL file: " DB_NAME
                 apply_sql_file
                 ;;
             7)
@@ -389,7 +434,7 @@ detect_container() {
     log_info "Detected credentials: POSTGRES_USER='$POSTGRES_USER'"
 }
 
-# Функция для вывода авторства
+# Function to display the creator's signature
 show_created_by() {
     echo -e "${YELLOW}"
     echo "                                    Created by                "
@@ -399,7 +444,6 @@ show_created_by() {
     echo "                               ━━━━┛┗┗┗┻┛┗•┗┛┗┻┗┗┗━━━━        "
     echo -e "${NC}"
 }
-
 
 # Main script execution
 main() {
@@ -448,8 +492,9 @@ main() {
             exit 1
             ;;
     esac
+
+    show_created_by
 }
 
 # Run the main function
 main "$@"
-show_created_by
