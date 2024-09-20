@@ -389,6 +389,18 @@ detect_container() {
     log_info "Detected credentials: POSTGRES_USER='$POSTGRES_USER'"
 }
 
+# Функция для вывода авторства
+show_created_by() {
+    echo -e "${YELLOW}"
+    echo "                                    Created by                "
+    echo "                           ──────────────────────────────     "
+    echo "                                   ┏┓┓     ┓                  "
+    echo "                                   ┣┫┃┏┓┏┓ ┃ ┏┓╋╋┏┓           "
+    echo "                               ━━━━┛┗┗┗┻┛┗•┗┛┗┻┗┗┗━━━━        "
+    echo -e "${NC}"
+}
+
+
 # Main script execution
 main() {
     parse_options "$@"
@@ -440,3 +452,4 @@ main() {
 
 # Run the main function
 main "$@"
+show_created_by
