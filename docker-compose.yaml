@@ -1,7 +1,6 @@
-version: '3.8'
 services:
   postgres:
-    image: postgres:13.1
+    image: postgres:17
 
     restart: unless-stopped
 
@@ -14,17 +13,3 @@ services:
     command: -c 'max_connections=2000'
     volumes:
       - ./src/postgresql:/var/lib/postgresql/data/pgdata
-
-  redis:
-    image: redis:latest
-    restart: always
-    ports:
-      - "127.0.0.1:6379:6379"
-    environment:
-      - REDIS_PORT=6379
-      - REDIS_DATABASES=16
-    volumes:
-      - ./src/redis/data:/root/redis
-      - ./configs/redis/users.acl:/etc/redis/users.acl
-    command: ["redis-server", "--requirepass", "9cP4Mbxja8Fc3E", "--aclfile", "/etc/redis/users.acl"]
-    
