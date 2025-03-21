@@ -437,7 +437,7 @@ detect_container() {
     POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-}"
     PGDATA="${PGDATA:-/var/lib/postgresql/data}"
 
-    log_info "Detected credentials: POSTGRES_USER='$POSTGRES_USER'"
+    log_info "Detected credentials: POSTGRES_USER='[MASKED]'"
 }
 
 # Function to display the creator's signature
