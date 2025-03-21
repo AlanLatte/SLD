@@ -69,8 +69,14 @@ parse_options() {
                 shift 2
                 ;;
             -p|--password)
-                PROMPT_PASSWORD="true"
-                shift
+                if [[ $# -gt 1 && "$2" != -* ]]; then
+                    USER_PASSWORD="$2"
+                    PROMPT_PASSWORD="false"
+                    shift 2
+                else
+                    PROMPT_PASSWORD="true"
+                    shift
+                fi
                 ;;
             -du|--database-user)
                 ACTION="create_database_user"
